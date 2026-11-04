@@ -46,29 +46,36 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 <body>
 <div class="card">
-<h2>AboElfadl OTP Manager</h2>
-<p class="subtitle">لوحة إدارة طلبات التحقق</p>
 
-<input id="pin" type="password" placeholder="رمز الإدارة">
-<input id="phone" type="tel" maxlength="15"
-placeholder="01XXXXXXXXX">
+<h2>AboElfadl OTP Manager</h2>
+<p class="subtitle">خدمة التحقق من رقم الهاتف</p>
+
+<input
+ id="phone"
+ type="tel"
+ maxlength="11"
+ inputmode="numeric"
+ placeholder="01XXXXXXXXX"
+ autocomplete="tel"
+>
 
 <button id="sendBtn" onclick="sendRequest()">
 إرسال طلب التحقق
 </button>
 
 <div class="stats">
-<div class="stat">
-<span>المحاولات المتبقية</span>
-<strong id="remaining">5</strong>
-</div>
-<div class="stat">
-<span>الانتظار</span>
-<strong id="timer">جاهز</strong>
-</div>
+ <div class="stat">
+  <span>المحاولات المتاحة</span>
+  <strong id="remaining">1</strong>
+ </div>
+ <div class="stat">
+  <span>الانتظار</span>
+  <strong id="timer">جاهز</strong>
+ </div>
 </div>
 
 <div id="status"></div>
+
 </div>
 
 <script>
@@ -76,103 +83,132 @@ const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwwgDWKKP0EHwLNdfHP3
 
 let busy = false;
 let cooldown = 0;
-let timerInterval;
+let timerInterval = null;
 
 function normalizePhone(value){
- value=value.trim().replace(/[\s+()-]/g,"");
- if(/^01[0125]\d{8}$/.test(value)) return "2"+value;
- if(/^201[0125]\d{8}$/.test(value)) return value;
+ value = value.trim().replace(/[\s+()-]/g,"");
+
+ if(/^01[0125]\d{8}$/.test(value))
+  return "2" + value.substring(1);
+
+ if(/^201[0125]\d{8}$/.test(value))
+  return value;
+
  return null;
 }
 
-function status(message,type=""){
- const el=document.getElementById("status");
- el.textContent=message;
- el.className=type;
+function showStatus(message,type=""){
+ const el = document.getElementById("status");
+ el.textContent = message;
+ el.className = type;
 }
 
 function startTimer(seconds){
  clearInterval(timerInterval);
- cooldown=seconds;
- const btn=document.getElementById("sendBtn");
- btn.disabled=true;
 
- timerInterval=setInterval(()=>{
-  document.getElementById("timer").textContent=
-    cooldown+" ثانية";
+ cooldown = seconds;
 
-  if(cooldown<=0){
+ const btn = document.getElementById("sendBtn");
+ const timer = document.getElementById("timer");
+
+ btn.disabled = true;
+
+ function update(){
+  timer.textContent = cooldown + " ثانية";
+
+  if(cooldown <= 0){
    clearInterval(timerInterval);
-   document.getElementById("timer").textContent="جاهز";
-   btn.disabled=false;
+   timer.textContent = "جاهز";
+   btn.disabled = false;
    return;
   }
+
   cooldown--;
- },1000);
+ }
+
+ update();
+
+ timerInterval = setInterval(update,1000);
 }
 
 async function sendRequest(){
- if(busy || cooldown>0) return;
 
- const phone=normalizePhone(
+ if(busy || cooldown > 0) return;
+
+ const phone = normalizePhone(
   document.getElementById("phone").value
  );
- const pin=document.getElementById("pin").value;
- const btn=document.getElementById("sendBtn");
+
+ const btn = document.getElementById("sendBtn");
 
  if(!phone){
-  status("رقم الهاتف المصري غير صحيح","error");
-  return;
- }
- if(!pin){
-  status("أدخل رمز الإدارة","error");
-  return;
- }
- if(SCRIPT_URL.includes("PUT_YOUR")){
-  status("أضف رابط Apps Script أولاً","error");
+  showStatus("أدخل رقم هاتف مصري صحيح","error");
   return;
  }
 
- busy=true;
- btn.disabled=true;
- status("جارٍ التحقق من الطلب...");
+ if(!SCRIPT_URL.startsWith("https://script.google.com/")){
+  showStatus("رابط Apps Script غير صحيح","error");
+  return;
+ }
+
+ busy = true;
+ btn.disabled = true;
+
+ showStatus("جارٍ إرسال طلب التحقق...");
 
  try{
-  const response=await fetch(SCRIPT_URL,{
+
+  const formData = new URLSearchParams();
+  formData.append("phone",phone);
+
+  const response = await fetch(SCRIPT_URL,{
    method:"POST",
-   body:JSON.stringify({
-    action:"send",
-    phone:phone,
-    pin:pin
-   })
+   body:formData
   });
 
-  const result=await response.json();
-
-  if(result.remaining!==undefined){
-   document.getElementById("remaining").textContent=
-    result.remaining;
-  }
+  const result = await response.json();
 
   if(result.success){
-   status(result.message,"success");
+
+   showStatus(
+    result.message || "تم قبول طلب الإرسال",
+    "success"
+   );
+
+   document.getElementById("remaining").textContent = "0";
+
    startTimer(60);
+
   }else{
-   status(result.message,"error");
-   if(result.waitSeconds>0){
-    startTimer(result.waitSeconds);
+
+   showStatus(
+    result.message || "تعذر تنفيذ الطلب",
+    "error"
+   );
+
+   const wait = Number(result.waitSeconds || 0);
+
+   if(wait > 0){
+    startTimer(wait);
    }else{
-    btn.disabled=false;
+    btn.disabled = false;
    }
   }
 
  }catch(error){
-  status("تعذر الاتصال بالخادم: "+error.message,"error");
-  btn.disabled=false;
+
+  showStatus(
+   "تعذر الاتصال بالخادم: " + error.message,
+   "error"
+  );
+
+  btn.disabled = false;
+
  }finally{
-  busy=false;
+  busy = false;
  }
 }
 </script>
+
 </body>
 </html>
