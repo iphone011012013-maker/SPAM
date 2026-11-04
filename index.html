@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>AboElfadl OTP Manager</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;display:grid;place-items:center;
+ padding:20px;background:#101827;color:#fff;
+ font-family:Arial,sans-serif
+}
+.card{
+ width:100%;max-width:430px;padding:25px;
+ background:#1d293b;border:1px solid #34445d;
+ border-radius:20px;box-shadow:0 20px 50px #0005
+}
+h2{text-align:center}
+.subtitle{text-align:center;color:#aebbd0}
+input,button{
+ width:100%;padding:15px;margin-top:15px;
+ border-radius:11px;font-size:16px
+}
+input{
+ background:#111b2b;border:1px solid #46566d;
+ color:white;text-align:center
+}
+button{
+ background:#10a37f;color:white;border:0;
+ font-weight:bold;cursor:pointer
+}
+button:disabled{opacity:.5;cursor:not-allowed}
+.stats{
+ background:#111b2b;border-radius:12px;
+ padding:15px;margin-top:18px;line-height:2
+}
+.stat{display:flex;justify-content:space-between}
+#status{text-align:center;margin-top:18px;line-height:1.8}
+.success{color:#4ade80}
+.error{color:#fb7185}
+</style>
+</head>
+
+<body>
+<div class="card">
+<h2>AboElfadl OTP Manager</h2>
+<p class="subtitle">لوحة إدارة طلبات التحقق</p>
+
+<input id="pin" type="password" placeholder="رمز الإدارة">
+<input id="phone" type="tel" maxlength="15"
+placeholder="01XXXXXXXXX">
+
+<button id="sendBtn" onclick="sendRequest()">
+إرسال طلب التحقق
+</button>
+
+<div class="stats">
+<div class="stat">
+<span>المحاولات المتبقية</span>
+<strong id="remaining">5</strong>
+</div>
+<div class="stat">
+<span>الانتظار</span>
+<strong id="timer">جاهز</strong>
+</div>
+</div>
+
+<div id="status"></div>
+</div>
+
+<script>
+const SCRIPT_URL = "PUT_YOUR_APPS_SCRIPT_URL_HERE";
+
+let busy = false;
+let cooldown = 0;
+let timerInterval;
+
+function normalizePhone(value){
+ value=value.trim().replace(/[\s+()-]/g,"");
+ if(/^01[0125]\d{8}$/.test(value)) return "2"+value;
+ if(/^201[0125]\d{8}$/.test(value)) return value;
+ return null;
+}
+
+function status(message,type=""){
+ const el=document.getElementById("status");
+ el.textContent=message;
+ el.className=type;
+}
+
+function startTimer(seconds){
+ clearInterval(timerInterval);
+ cooldown=seconds;
+ const btn=document.getElementById("sendBtn");
+ btn.disabled=true;
+
+ timerInterval=setInterval(()=>{
+  document.getElementById("timer").textContent=
+    cooldown+" ثانية";
+
+  if(cooldown<=0){
+   clearInterval(timerInterval);
+   document.getElementById("timer").textContent="جاهز";
+   btn.disabled=false;
+   return;
+  }
+  cooldown--;
+ },1000);
+}
+
+async function sendRequest(){
+ if(busy || cooldown>0) return;
+
+ const phone=normalizePhone(
+  document.getElementById("phone").value
+ );
+ const pin=document.getElementById("pin").value;
+ const btn=document.getElementById("sendBtn");
+
+ if(!phone){
+  status("رقم الهاتف المصري غير صحيح","error");
+  return;
+ }
+ if(!pin){
+  status("أدخل رمز الإدارة","error");
+  return;
+ }
+ if(SCRIPT_URL.includes("PUT_YOUR")){
+  status("أضف رابط Apps Script أولاً","error");
+  return;
+ }
+
+ busy=true;
+ btn.disabled=true;
+ status("جارٍ التحقق من الطلب...");
+
+ try{
+  const response=await fetch(SCRIPT_URL,{
+   method:"POST",
+   body:JSON.stringify({
+    action:"send",
+    phone:phone,
+    pin:pin
+   })
+  });
+
+  const result=await response.json();
+
+  if(result.remaining!==undefined){
+   document.getElementById("remaining").textContent=
+    result.remaining;
+  }
+
+  if(result.success){
+   status(result.message,"success");
+   startTimer(60);
+  }else{
+   status(result.message,"error");
+   if(result.waitSeconds>0){
+    startTimer(result.waitSeconds);
+   }else{
+    btn.disabled=false;
+   }
+  }
+
+ }catch(error){
+  status("تعذر الاتصال بالخادم: "+error.message,"error");
+  btn.disabled=false;
+ }finally{
+  busy=false;
+ }
+}
+</script>
+</body>
+</html>
